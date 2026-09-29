@@ -10,9 +10,9 @@ def setup_robot_model():
     os.makedirs(model_dir, exist_ok=True)
     a1_dir = os.path.join(model_dir, "unitree_a1")
     
-    if os.path.exists(os.path.join(a1_dir, "a1.xml")):
+    if os.path.exists(os.path.join(a1_dir, "scene.xml")):
         print(f"[OK] Unitree A1 model already exists at: {a1_dir}")
-        return os.path.join(a1_dir, "a1.xml")
+        return os.path.join(a1_dir, "scene.xml")
     
     print("[INFO] Cloning Google DeepMind MuJoCo Menagerie (Unitree A1)...")
     # Clone minimal menagerie or download zip
@@ -30,7 +30,7 @@ def setup_robot_model():
         shutil.move(os.path.join(model_dir, "menagerie_tmp", "unitree_a1"), a1_dir)
         shutil.rmtree(os.path.join(model_dir, "menagerie_tmp"))
         print(f"[SUCCESS] Unitree A1 model ready at: {a1_dir}")
-        return os.path.join(a1_dir, "a1.xml")
+        return os.path.join(a1_dir, "scene.xml")
     except Exception as e:
         print(f"[FALLBACK] Git sparse checkout failed: {e}. Downloading repository archive...")
         zip_url = "https://github.com/google-deepmind/mujoco_menagerie/archive/refs/heads/main.zip"
@@ -48,7 +48,7 @@ def setup_robot_model():
         if os.path.exists(zip_path):
             os.remove(zip_path)
         print(f"[SUCCESS] Downloaded Unitree A1 model to: {a1_dir}")
-        return os.path.join(a1_dir, "a1.xml")
+        return os.path.join(a1_dir, "scene.xml")
 
 if __name__ == "__main__":
     setup_robot_model()

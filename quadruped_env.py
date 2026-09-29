@@ -25,7 +25,7 @@ class QuadrupedPerturbationEnv(gym.Env):
         
         if model_path is None:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(base_dir, "models", "unitree_a1", "a1.xml")
+            model_path = os.path.join(base_dir, "models", "unitree_a1", "scene.xml")
             
         if not os.path.exists(model_path):
             from setup_robot import setup_robot_model
@@ -148,22 +148,15 @@ class QuadrupedPerturbationEnv(gym.Env):
         action = np.clip(action, -1.0, 1.0)
         target_qpos = self.default_qpos + action * self.action_scale
 
-        # Physics simulation sub-steps with PD torque control
+        # MuJoCo Menagerie Unitree A1 uses built-in position actuators (<position kp="100"/>)
+        # target_qpos directly represents desired joint angles (in radians)
+        self.data.ctrl[:12] = target_qpos
+
         applied_torques = []
         for _ in range(self.sim_substeps):
             self._apply_perturbation()
-            
-            # Current joint states
-            current_q = self.data.qpos[7:19]
-            current_dq = self.data.qvel[6:18]
-            
-            # PD control law: tau = Kp * (q_target - q) - Kd * dq
-            tau = self.kp * (target_qpos - current_q) - self.kd * current_dq
-            tau = np.clip(tau, -self.max_torque, self.max_torque)
-            
-            self.data.ctrl[:12] = tau
-            applied_torques.append(tau)
             mujoco.mj_step(self.model, self.data)
+            applied_torques.append(self.data.actuator_force[:12].copy())
 
         # Compute observation, reward, and termination
         obs = self._get_obs()
