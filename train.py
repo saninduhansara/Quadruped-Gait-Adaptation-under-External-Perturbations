@@ -14,9 +14,10 @@ from quadruped_env import QuadrupedPerturbationEnv
 
 class PushCurriculumCallback(BaseCallback):
     """Gradually ramps up the perturbation push force as locomotion training progresses."""
-    def __init__(self, vec_env, max_force=150.0, warmup_steps=400_000, ramp_steps=2_000_000, verbose=1):
+    def __init__(self, vec_env, eval_env=None, max_force=60.0, warmup_steps=300_000, ramp_steps=1_500_000, verbose=1):
         super().__init__(verbose)
         self.vec_env = vec_env
+        self.eval_env = eval_env
         self.max_force = max_force
         self.warmup_steps = warmup_steps
         self.ramp_steps = ramp_steps
@@ -32,7 +33,9 @@ class PushCurriculumCallback(BaseCallback):
 
             if abs(current_force - self.last_force) >= 2.0 or current_force == self.max_force:
                 self.vec_env.env_method("set_max_push_force", current_force)
-                if abs(current_force - self.last_force) >= 15.0 or self.last_force < 0:
+                if self.eval_env is not None:
+                    self.eval_env.env_method("set_max_push_force", current_force)
+                if abs(current_force - self.last_force) >= 10.0 or self.last_force < 0:
                     print(f"[CURRICULUM] Timestep {self.num_timesteps:,}: Perturbation Force -> {current_force:.1f} N")
                 self.last_force = current_force
         return True
@@ -50,8 +53,8 @@ def make_env(rank, seed=0, perturbation_prob=0.02, max_push_force=0.0):
 def train():
     parser = argparse.ArgumentParser(description="Train Quadruped RL Policy with Perturbations")
     parser.add_argument("--num-envs", type=int, default=8, help="Number of parallel simulation environments")
-    parser.add_argument("--total-timesteps", type=int, default=10_000_000, help="Total training steps")
-    parser.add_argument("--push-force", type=float, default=150.0, help="Maximum perturbation force (N)")
+    parser.add_argument("--total-timesteps", type=int, default=5_000_000, help="Total training steps")
+    parser.add_argument("--push-force", type=float, default=60.0, help="Maximum perturbation force (N)")
     parser.add_argument("--push-prob", type=float, default=0.02, help="Probability of push per control step")
     parser.add_argument("--save-freq", type=int, default=100_000, help="Save checkpoint every N steps")
     parser.add_argument("--log-dir", type=str, default="./logs", help="Directory for logs and tensorboard")
@@ -70,19 +73,19 @@ def train():
     print("QUADRUPED GAIT ADAPTATION TRAINING")
     print(f"Parallel Envs: {args.num_envs}")
     print(f"Total Timesteps: {args.total_timesteps:,}")
-    print(f"Max Perturbation Force: {args.push_force} N (prob: {args.push_prob})")
+    print(f"Target Perturbation Force: {args.push_force} N (prob: {args.push_prob})")
     print(f"CUDA Available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
     print("=" * 60)
 
-    # Create vectorized environment
-    env_fns = [make_env(i, perturbation_prob=args.push_prob, max_push_force=args.push_force) for i in range(args.num_envs)]
+    # Create vectorized environment (starts at 0.0 N and ramps via curriculum)
+    env_fns = [make_env(i, perturbation_prob=args.push_prob, max_push_force=0.0) for i in range(args.num_envs)]
     vec_env = SubprocVecEnv(env_fns)
     vec_env = VecMonitor(vec_env, filename=os.path.join(args.log_dir, "monitor.csv"))
 
-    # Evaluation environment (unvectorized wrapper)
-    eval_env = VecMonitor(SubprocVecEnv([make_env(999, perturbation_prob=args.push_prob, max_push_force=args.push_force)]))
+    # Evaluation environment (starts at 0.0 N and ramps with curriculum)
+    eval_env = VecMonitor(SubprocVecEnv([make_env(999, perturbation_prob=args.push_prob, max_push_force=0.0)]))
 
     # Neural network policy architecture (2-layer MLP with ELU activations)
     policy_kwargs = dict(
@@ -111,9 +114,10 @@ def train():
     # Curriculum Callback for External Push Forces
     curriculum_callback = PushCurriculumCallback(
         vec_env,
+        eval_env=eval_env,
         max_force=args.push_force,
-        warmup_steps=min(400_000, args.total_timesteps // 5),
-        ramp_steps=min(2_000_000, args.total_timesteps // 2),
+        warmup_steps=min(300_000, args.total_timesteps // 6),
+        ramp_steps=min(1_500_000, args.total_timesteps // 2),
         verbose=1,
     )
 
