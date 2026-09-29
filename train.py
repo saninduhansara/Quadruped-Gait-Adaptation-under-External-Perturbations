@@ -7,12 +7,37 @@ import argparse
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, BaseCallback
 
 from setup_robot import setup_robot_model
 from quadruped_env import QuadrupedPerturbationEnv
 
-def make_env(rank, seed=0, perturbation_prob=0.02, max_push_force=150.0):
+class PushCurriculumCallback(BaseCallback):
+    """Gradually ramps up the perturbation push force as locomotion training progresses."""
+    def __init__(self, vec_env, max_force=150.0, warmup_steps=400_000, ramp_steps=2_000_000, verbose=1):
+        super().__init__(verbose)
+        self.vec_env = vec_env
+        self.max_force = max_force
+        self.warmup_steps = warmup_steps
+        self.ramp_steps = ramp_steps
+        self.last_force = -1.0
+
+    def _on_step(self) -> bool:
+        if self.n_calls % 200 == 0:
+            if self.num_timesteps < self.warmup_steps:
+                current_force = 0.0
+            else:
+                progress = min(1.0, (self.num_timesteps - self.warmup_steps) / self.ramp_steps)
+                current_force = progress * self.max_force
+
+            if abs(current_force - self.last_force) >= 2.0 or current_force == self.max_force:
+                self.vec_env.env_method("set_max_push_force", current_force)
+                if abs(current_force - self.last_force) >= 15.0 or self.last_force < 0:
+                    print(f"[CURRICULUM] Timestep {self.num_timesteps:,}: Perturbation Force -> {current_force:.1f} N")
+                self.last_force = current_force
+        return True
+
+def make_env(rank, seed=0, perturbation_prob=0.02, max_push_force=0.0):
     def _init():
         env = QuadrupedPerturbationEnv(
             perturbation_prob=perturbation_prob,
@@ -83,6 +108,15 @@ def train():
         deterministic=True,
     )
 
+    # Curriculum Callback for External Push Forces
+    curriculum_callback = PushCurriculumCallback(
+        vec_env,
+        max_force=args.push_force,
+        warmup_steps=min(400_000, args.total_timesteps // 5),
+        ramp_steps=min(2_000_000, args.total_timesteps // 2),
+        verbose=1,
+    )
+
     # PPO Hyperparameters tuned for quadruped locomotion
     model = PPO(
         policy="MlpPolicy",
@@ -106,7 +140,7 @@ def train():
     try:
         model.learn(
             total_timesteps=args.total_timesteps,
-            callback=[checkpoint_callback, eval_callback],
+            callback=[checkpoint_callback, eval_callback, curriculum_callback],
             progress_bar=False,
         )
         final_model_path = os.path.join(args.checkpoint_dir, "final_model.zip")

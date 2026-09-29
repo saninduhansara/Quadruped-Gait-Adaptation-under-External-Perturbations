@@ -125,6 +125,10 @@ class QuadrupedPerturbationEnv(gym.Env):
 
         return self._get_obs(), {}
 
+    def set_max_push_force(self, force: float):
+        """Update maximum push force dynamically for curriculum training."""
+        self.max_push_force = float(force)
+
     def _apply_perturbation(self):
         """Inject sudden external force impulses to the robot torso."""
         if self.push_counter > 0:
@@ -134,13 +138,13 @@ class QuadrupedPerturbationEnv(gym.Env):
         else:
             # Reset applied force
             self.data.xfrc_applied[self.trunk_body_id, :] = 0.0
-            # Check if a new perturbation should trigger
-            if np.random.rand() < self.perturbation_prob:
+            # Check if a new perturbation should trigger (once per control step)
+            if self.max_push_force > 1.0 and np.random.rand() < self.perturbation_prob:
                 angle = np.random.uniform(0, 2 * np.pi)
-                magnitude = np.random.uniform(50.0, self.max_push_force)
+                magnitude = np.random.uniform(20.0, self.max_push_force)
                 self.current_push_force[0] = magnitude * np.cos(angle)
                 self.current_push_force[1] = magnitude * np.sin(angle)
-                self.current_push_force[2] = np.random.uniform(-20.0, 20.0)
+                self.current_push_force[2] = np.random.uniform(-10.0, 10.0)
                 self.push_counter = self.push_duration_steps
 
     def step(self, action):
@@ -152,9 +156,11 @@ class QuadrupedPerturbationEnv(gym.Env):
         # target_qpos directly represents desired joint angles (in radians)
         self.data.ctrl[:12] = target_qpos
 
+        # Apply perturbation force at the control step level
+        self._apply_perturbation()
+
         applied_torques = []
         for _ in range(self.sim_substeps):
-            self._apply_perturbation()
             mujoco.mj_step(self.model, self.data)
             applied_torques.append(self.data.actuator_force[:12].copy())
 
@@ -167,9 +173,9 @@ class QuadrupedPerturbationEnv(gym.Env):
         projected_gravity = obs[3:6]
         
         terminated = False
-        if trunk_height < 0.16 or trunk_height > 0.45:
+        if trunk_height < 0.15 or trunk_height > 0.45:
             terminated = True
-        if projected_gravity[2] > -0.5:  # tilted more than ~60 deg
+        if projected_gravity[2] > -0.4:  # tilted more than ~66 deg
             terminated = True
 
         truncated = self.step_count >= self.max_episode_steps
@@ -218,45 +224,58 @@ class QuadrupedPerturbationEnv(gym.Env):
 
         # 1. Forward velocity tracking reward
         vel_err = (local_linvel[0] - self.command[0]) ** 2
-        r_vel = np.exp(-vel_err / 0.25)
+        r_vel = np.exp(-vel_err / 0.15)
 
-        # 2. Lateral velocity penalty
-        r_lateral = -1.0 * (local_linvel[1] - self.command[1]) ** 2
+        # 2. Direct forward velocity progress (rewards moving forward, penalizes backward drift)
+        r_forward = np.clip(local_linvel[0], -0.2, self.command[0] * 1.2)
 
-        # 3. Angular yaw rate tracking reward
+        # 3. Lateral velocity penalty
+        r_lateral = -1.5 * (local_linvel[1] - self.command[1]) ** 2
+
+        # 4. Angular yaw rate tracking reward
         yaw_err = (base_angvel[2] - self.command[2]) ** 2
         r_yaw = np.exp(-yaw_err / 0.25)
 
-        # 4. Base posture penalty (maintain horizontal torso)
+        # 5. Base posture penalty (maintain horizontal torso roll/pitch)
         proj_gravity = rot_mat.T @ np.array([0.0, 0.0, -1.0])
-        r_orient = -2.0 * np.sum(np.square(proj_gravity[:2]))
+        r_orient = -1.5 * np.sum(np.square(proj_gravity[:2]))
 
-        # 5. Height maintenance reward
-        r_height = -5.0 * (self.data.qpos[2] - 0.28) ** 2
+        # 6. Height maintenance reward (deadband allows natural walking bounce between 0.25m and 0.31m)
+        height_err = max(0.0, abs(self.data.qpos[2] - 0.28) - 0.03)
+        r_height = -4.0 * (height_err ** 2)
 
-        # 6. Action smoothness & energy penalties
-        r_smooth = -0.05 * np.sum(np.square(action - self.last_action))
-        r_torque = -0.0001 * np.sum(np.square(torques))
+        # 7. Action smoothness & energy penalties (relaxed to allow rapid leg swings)
+        r_smooth = -0.005 * np.sum(np.square(action - self.last_action))
+        r_torque = -0.00005 * np.sum(np.square(torques))
 
-        # 7. Survival / Healthy bonus
-        r_alive = 0.5
+        # 8. Leg motion incentive: penalizes stationary/frozen joints when moving forward
+        joint_vel = self.data.qvel[6:18]
+        leg_motion = np.mean(np.abs(joint_vel))
+        r_motion = np.clip(leg_motion, 0.0, 1.5) if self.command[0] > 0.2 else 0.0
+
+        # 9. Minimal survival bonus (reduced to 0.05 so camping in place gives near 0 total reward)
+        r_alive = 0.05
 
         total_reward = (
-            1.5 * r_vel +
+            3.0 * r_vel +
+            2.5 * r_forward +
             0.5 * r_yaw +
             r_lateral +
             r_orient +
             r_height +
             r_smooth +
             r_torque +
+            0.3 * r_motion +
             r_alive
         )
 
         reward_info = {
             "r_vel": r_vel,
+            "r_forward": r_forward,
             "r_yaw": r_yaw,
             "r_orient": r_orient,
             "r_height": r_height,
         }
 
         return float(total_reward), reward_info
+

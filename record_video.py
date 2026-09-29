@@ -39,6 +39,7 @@ def record_rollout(model_path, output_video="quadruped_adaptation.mp4", max_step
     frames = []
     obs, _ = env.reset(seed=42)
 
+    print(f"[INFO] Commanded forward velocity (vx): {env.command[0]:.2f} m/s")
     print(f"[INFO] Recording {max_steps} steps...")
     for step in range(max_steps):
         action, _ = model.predict(obs, deterministic=True)
@@ -54,6 +55,7 @@ def record_rollout(model_path, output_video="quadruped_adaptation.mp4", max_step
             obs, _ = env.reset()
 
     # Save to MP4
+    print(f"[INFO] Final forward position: x = {env.data.qpos[0]:.2f} m")
     print(f"[INFO] Saving video to {output_video}...")
     imageio.mimsave(output_video, frames, fps=50)
     print(f"[SUCCESS] Video saved: {output_video} ({len(frames)} frames)")
