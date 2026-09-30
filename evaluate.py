@@ -1,6 +1,9 @@
 """
-Evaluation and Push-Recovery Benchmarking for Quadruped Gait Adaptation & 360° Bait Navigation.
-Tests the policy under increasing external lateral and longitudinal push forces.
+Evaluation and Push-Recovery Benchmarking for the Unified Quadruped RL System:
+  - 360° Random Cell Bait Navigation
+  - 3-in-1 Multi-Gait Controller (Walk / Trot / Bound)
+  - 3-Legged Limp-Mode Adaptation (Actuator Failure Recovery)
+  - 10-Step RMA Proprioceptive History
 """
 import os
 import argparse
@@ -11,15 +14,23 @@ from stable_baselines3 import PPO
 from quadruped_env import QuadrupedPerturbationEnv
 
 
-def run_push_benchmark(model_path, push_forces=[0, 20, 40, 60, 80, 100, 120], episodes_per_force=5, use_bait=True):
-    print("=" * 88)
-    print(f"EVALUATING MODEL: {model_path} | 360° Bait Mode: {use_bait}")
-    print("=" * 88)
+def run_push_benchmark(
+    model_path,
+    push_forces=[0, 20, 40, 60, 80, 100, 120],
+    episodes_per_force=5,
+    use_bait=True,
+    test_limp_mode=False,
+):
+    print("=" * 94)
+    print(f"EVALUATING MODEL: {model_path}")
+    print(f"Mode: {'3-LEGGED LIMP RECOVERY' if test_limp_mode else '4-LEGGED MULTI-GAIT (WALK/TROT/BOUND)'} | Bait Navigation: {use_bait}")
+    print("=" * 94)
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
 
     model = PPO.load(model_path)
+    expected_dim = model.observation_space.shape[0]
 
     results = []
 
@@ -29,6 +40,7 @@ def run_push_benchmark(model_path, push_forces=[0, 20, 40, 60, 80, 100, 120], ep
             max_push_force=force,
             push_duration_steps=6,
             use_bait=use_bait,
+            leg_failure_prob=0.0,
         )
 
         survived_episodes = 0
@@ -38,8 +50,8 @@ def run_push_benchmark(model_path, push_forces=[0, 20, 40, 60, 80, 100, 120], ep
 
         for ep in range(episodes_per_force):
             obs, _ = env.reset(seed=1000 + ep)
-            if not use_bait:
-                env.command = np.array([0.85, 0.0, 0.0], dtype=np.float32)
+            if test_limp_mode:
+                env.set_disabled_leg(ep % 4)  # Test across FR, FL, RR, RL leg failures
                 obs = env._get_obs()
 
             ep_reward = 0.0
@@ -47,7 +59,7 @@ def run_push_benchmark(model_path, push_forces=[0, 20, 40, 60, 80, 100, 120], ep
             done = False
 
             while not done:
-                action, _ = model.predict(obs, deterministic=True)
+                action, _ = model.predict(obs[:expected_dim], deterministic=True)
                 obs, reward, terminated, truncated, info = env.step(action)
                 ep_reward += reward
                 steps += 1
@@ -78,13 +90,15 @@ def run_push_benchmark(model_path, push_forces=[0, 20, 40, 60, 80, 100, 120], ep
             f"Avg Baits Collected: {avg_baits:>4.1f} | Avg Steps: {avg_steps:>6.1f} | Return: {avg_reward:>7.1f}"
         )
 
-    print("=" * 88)
+    print("=" * 94)
     return results
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate Quadruped Push Recovery & Bait Navigation")
+    parser = argparse.ArgumentParser(description="Evaluate Quadruped Multi-Gait, 3-Leg Limp & Push Recovery")
     parser.add_argument("--model-path", type=str, default="./checkpoints/best_model/best_model.zip", help="Path to trained model .zip")
+    parser.add_argument("--test-limp", action="store_true", help="Benchmark 3-legged actuator failure recovery")
     parser.add_argument("--no-bait", action="store_true", help="Disable random bait navigation")
     args = parser.parse_args()
-    run_push_benchmark(args.model_path, use_bait=not args.no_bait)
+
+    run_push_benchmark(args.model_path, use_bait=not args.no_bait, test_limp_mode=args.test_limp)

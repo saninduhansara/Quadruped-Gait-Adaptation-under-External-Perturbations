@@ -1,5 +1,6 @@
 #!/bin/bash
-# Shell script to fine-tune quadruped 360-degree sharp-turn bait navigation on Ada server
+# Shell script to train the Unified Quadruped RL System on Ada server:
+# (360° Bait Navigation + 3-in-1 Multi-Gait + 3-Legged Fault Recovery + 10-Step RMA History)
 
 # 1. Activate Python virtual environment
 source /tmp/quad_rl_new/bin/activate
@@ -13,5 +14,5 @@ export MUJOCO_GL="egl"
 # 4. Navigate to project directory
 cd /new-home/e22/e22130/projects/quad
 
-# 5. Fine-tune from existing best_model.zip for 1,000,000 steps in 360-degree bait mode
-python3 train.py --num-envs 8 --push-force 60.0 --total-timesteps 1000000 --resume-from ./checkpoints/best_model/best_model.zip --device auto
+# 5. Warm-start from existing best_model.zip into the 78-dim unified policy and train for 1,500,000 steps
+python3 train.py --num-envs 8 --push-force 60.0 --fault-prob 0.25 --total-timesteps 1500000 --resume-from ./checkpoints/best_model/best_model.zip --device auto
