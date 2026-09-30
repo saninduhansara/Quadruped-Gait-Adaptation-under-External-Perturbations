@@ -162,32 +162,39 @@ pip install mujoco gymnasium stable-baselines3 tensorboard tqdm rich imageio ima
 
 ---
 
-## 🚀 Training the Quadruped
+## 🚀 Training & 360° Bait Fine-Tuning
 
-Run inside a persistent `tmux` session so training continues even if your SSH session disconnects:
+### 1. Upload Updated Scripts to Ada (from Local Windows PowerShell)
+```powershell
+cd "e:\Quadruped Gait Adaptation under External Perturbations"
+scp quadruped_env.py train.py evaluate.py record_video.py run_train.sh e22130@ada.ce.pdn.ac.lk:/new-home/e22/e22130/projects/quad/
+```
+
+### 2. Fine-Tune in 360° Random Cell Bait Mode (on Ada)
+Fine-tunes your existing `./checkpoints/best_model/best_model.zip` for `1,000,000` steps so the quadruped pivots sharply ($360^\circ$) toward randomly spawned floor cell baits while rejecting external pushes:
 
 ```bash
-# 1. Start tmux session
-tmux new -s quad_training
+# 1. Start or attach tmux session
+tmux new -s quad_bait
 
-# 2. Enter project folder and run launcher
+# 2. Run the 360° Bait Fine-Tuning launcher
 cd /new-home/e22/e22130/projects/quad
 chmod +x run_train.sh
 ./run_train.sh
 ```
 
-Or run `train.py` directly with custom arguments:
+Or run `train.py` directly:
 ```bash
 export CUDA_VISIBLE_DEVICES=1
 export MUJOCO_GL="egl"
-python3 train.py --num-envs 8 --push-force 60.0 --total-timesteps 3000000 --device auto
+python3 train.py --num-envs 8 --push-force 60.0 --total-timesteps 1000000 --resume-from ./checkpoints/best_model/best_model.zip --device auto
 ```
 
 ### How to Safely Detach & Reconnect `tmux`
 * **Detach:** Press `Ctrl + B`, release both keys, then press `D`.
 * **Reattach later:**
   ```bash
-  tmux attach -t quad_training
+  tmux attach -t quad_bait
   ```
 
 ---

@@ -1,5 +1,6 @@
 """
-PPO Training script for Quadruped Gait Adaptation under External Perturbations.
+PPO Training & Fine-Tuning script for Quadruped Gait Adaptation under External Perturbations
+with 360-Degree Sharp-Turn Random Cell Bait Navigation.
 Optimized for multi-core GPU servers (Ada HPC).
 """
 import os
@@ -12,9 +13,10 @@ from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback,
 from setup_robot import setup_robot_model
 from quadruped_env import QuadrupedPerturbationEnv
 
+
 class PushCurriculumCallback(BaseCallback):
-    """Gradually ramps up the perturbation push force as locomotion training progresses."""
-    def __init__(self, vec_env, eval_env=None, max_force=60.0, warmup_steps=300_000, ramp_steps=1_500_000, verbose=1):
+    """Gradually ramps up the perturbation push force as locomotion/bait-hunting progresses."""
+    def __init__(self, vec_env, eval_env=None, max_force=60.0, warmup_steps=200_000, ramp_steps=800_000, verbose=1):
         super().__init__(verbose)
         self.vec_env = vec_env
         self.eval_env = eval_env
@@ -28,7 +30,7 @@ class PushCurriculumCallback(BaseCallback):
             if self.num_timesteps < self.warmup_steps:
                 current_force = 0.0
             else:
-                progress = min(1.0, (self.num_timesteps - self.warmup_steps) / self.ramp_steps)
+                progress = min(1.0, (self.num_timesteps - self.warmup_steps) / max(1, self.ramp_steps))
                 current_force = progress * self.max_force
 
             if abs(current_force - self.last_force) >= 2.0 or current_force == self.max_force:
@@ -40,22 +42,28 @@ class PushCurriculumCallback(BaseCallback):
                 self.last_force = current_force
         return True
 
-def make_env(rank, seed=0, perturbation_prob=0.02, max_push_force=0.0):
+
+def make_env(rank, seed=0, perturbation_prob=0.02, max_push_force=0.0, use_bait=True):
     def _init():
         env = QuadrupedPerturbationEnv(
             perturbation_prob=perturbation_prob,
             max_push_force=max_push_force,
+            use_bait=use_bait,
         )
         env.reset(seed=seed + rank)
         return env
     return _init
 
+
 def train():
-    parser = argparse.ArgumentParser(description="Train Quadruped RL Policy with Perturbations")
+    parser = argparse.ArgumentParser(description="Train / Fine-Tune Quadruped RL Policy with 360° Bait Navigation")
     parser.add_argument("--num-envs", type=int, default=8, help="Number of parallel simulation environments")
-    parser.add_argument("--total-timesteps", type=int, default=5_000_000, help="Total training steps")
+    parser.add_argument("--total-timesteps", type=int, default=1_000_000, help="Total training/fine-tuning steps")
     parser.add_argument("--push-force", type=float, default=60.0, help="Maximum perturbation force (N)")
     parser.add_argument("--push-prob", type=float, default=0.02, help="Probability of push per control step")
+    parser.add_argument("--resume-from", type=str, default="./checkpoints/best_model/best_model.zip",
+                        help="Path to existing checkpoint to fine-tune from (if found)")
+    parser.add_argument("--no-bait", action="store_true", help="Disable random cell bait mode")
     parser.add_argument("--save-freq", type=int, default=100_000, help="Save checkpoint every N steps")
     parser.add_argument("--log-dir", type=str, default="./logs", help="Directory for logs and tensorboard")
     parser.add_argument("--checkpoint-dir", type=str, default="./checkpoints", help="Directory for model checkpoints")
@@ -63,29 +71,32 @@ def train():
     parser.add_argument("--batch-size", type=int, default=256, help="Minibatch size for PPO updates")
     args = parser.parse_args()
 
+    use_bait = not args.no_bait
+
     # Ensure robot model is present
     setup_robot_model()
 
     os.makedirs(args.log_dir, exist_ok=True)
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
-    print("=" * 60)
-    print("QUADRUPED GAIT ADAPTATION TRAINING")
+    print("=" * 68)
+    print("QUADRUPED 360° SHARP-TURN BAIT NAVIGATION & PERTURBATION TRAINING")
     print(f"Parallel Envs: {args.num_envs}")
     print(f"Total Timesteps: {args.total_timesteps:,}")
+    print(f"360° Random Cell Bait Mode: {'ENABLED' if use_bait else 'DISABLED'}")
     print(f"Target Perturbation Force: {args.push_force} N (prob: {args.push_prob})")
     print(f"CUDA Available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
-    print("=" * 60)
+    print("=" * 68)
 
-    # Create vectorized environment (starts at 0.0 N and ramps via curriculum)
-    env_fns = [make_env(i, perturbation_prob=args.push_prob, max_push_force=0.0) for i in range(args.num_envs)]
+    # Create vectorized environment
+    env_fns = [make_env(i, perturbation_prob=args.push_prob, max_push_force=0.0, use_bait=use_bait) for i in range(args.num_envs)]
     vec_env = SubprocVecEnv(env_fns)
     vec_env = VecMonitor(vec_env, filename=os.path.join(args.log_dir, "monitor.csv"))
 
-    # Evaluation environment (starts at 0.0 N and ramps with curriculum)
-    eval_env = VecMonitor(SubprocVecEnv([make_env(999, perturbation_prob=args.push_prob, max_push_force=0.0)]))
+    # Evaluation environment
+    eval_env = VecMonitor(SubprocVecEnv([make_env(999, perturbation_prob=args.push_prob, max_push_force=0.0, use_bait=use_bait)]))
 
     # Neural network policy architecture (2-layer MLP with ELU activations)
     policy_kwargs = dict(
@@ -97,7 +108,7 @@ def train():
     checkpoint_callback = CheckpointCallback(
         save_freq=max(args.save_freq // args.num_envs, 1000),
         save_path=args.checkpoint_dir,
-        name_prefix="quad_ppo_perturb",
+        name_prefix="quad_ppo_bait",
         save_replay_buffer=False,
     )
 
@@ -111,34 +122,49 @@ def train():
         deterministic=True,
     )
 
-    # Curriculum Callback for External Push Forces
+    # Load existing checkpoint for fast fine-tuning if available
+    is_finetuning = bool(args.resume_from and os.path.exists(args.resume_from))
+    if is_finetuning:
+        print(f"[INFO] Fine-tuning from existing trained model: {args.resume_from}")
+        model = PPO.load(
+            args.resume_from,
+            env=vec_env,
+            device=args.device,
+            learning_rate=1.5e-4,  # Slightly lower LR for stable fine-tuning on 360° turns
+            tensorboard_log=os.path.join(args.log_dir, "tb"),
+        )
+        warmup = min(50_000, args.total_timesteps // 10)
+        ramp = min(300_000, args.total_timesteps // 2)
+    else:
+        print("[INFO] Starting fresh PPO training run...")
+        model = PPO(
+            policy="MlpPolicy",
+            env=vec_env,
+            learning_rate=3e-4,
+            n_steps=2048,
+            batch_size=args.batch_size,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.005,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            policy_kwargs=policy_kwargs,
+            tensorboard_log=os.path.join(args.log_dir, "tb"),
+            verbose=1,
+            device=args.device,
+        )
+        warmup = min(200_000, args.total_timesteps // 6)
+        ramp = min(1_000_000, args.total_timesteps // 2)
+
     curriculum_callback = PushCurriculumCallback(
         vec_env,
         eval_env=eval_env,
         max_force=args.push_force,
-        warmup_steps=min(300_000, args.total_timesteps // 6),
-        ramp_steps=min(1_500_000, args.total_timesteps // 2),
+        warmup_steps=warmup,
+        ramp_steps=ramp,
         verbose=1,
-    )
-
-    # PPO Hyperparameters tuned for quadruped locomotion
-    model = PPO(
-        policy="MlpPolicy",
-        env=vec_env,
-        learning_rate=3e-4,
-        n_steps=2048,
-        batch_size=args.batch_size,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.005,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        policy_kwargs=policy_kwargs,
-        tensorboard_log=os.path.join(args.log_dir, "tb"),
-        verbose=1,
-        device=args.device,
     )
 
     try:
@@ -146,13 +172,15 @@ def train():
             total_timesteps=args.total_timesteps,
             callback=[checkpoint_callback, eval_callback, curriculum_callback],
             progress_bar=False,
+            reset_num_timesteps=not is_finetuning,
         )
-        final_model_path = os.path.join(args.checkpoint_dir, "final_model.zip")
+        final_model_path = os.path.join(args.checkpoint_dir, "final_bait_model.zip")
         model.save(final_model_path)
-        print(f"[SUCCESS] Training completed! Model saved to: {final_model_path}")
+        print(f"[SUCCESS] 360° Bait Fine-Tuning completed! Model saved to: {final_model_path}")
     finally:
         vec_env.close()
         eval_env.close()
+
 
 if __name__ == "__main__":
     train()
