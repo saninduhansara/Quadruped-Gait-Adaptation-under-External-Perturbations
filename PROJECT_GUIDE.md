@@ -3,8 +3,8 @@
 **Simulator:** MuJoCo 3.14.0  
 **Algorithm:** Proximal Policy Optimization (PPO) via Stable-Baselines3  
 **Robot Model:** Unitree A1 (12 DoF Quadruped from Google DeepMind MuJoCo Menagerie)  
-**User:** `e22130`  
-**Working Directory:** `/new-home/e22/e22130/projects/quad`
+**User:** `<your_username>`  
+**Working Directory:** `~/projects/quad`
 
 ---
 
@@ -114,7 +114,7 @@ Multi-environment vectorized PPO training pipeline:
 - Runs 8 parallel simulation environments using `SubprocVecEnv`.
 - Neural network architecture: 2-layer MLP (256x256) with `ELU` activation.
 - Automated evaluation callback and checkpoint saving.
-- Output directory: `/new-home/e22/e22130/projects/quad/logs` and `./checkpoints`.
+- Output directory: `./logs` and `./checkpoints`.
 
 ---
 
@@ -133,7 +133,7 @@ Launcher script setting GPU assignment and headless EGL rendering:
 source /tmp/quad_rl_new/bin/activate
 export CUDA_VISIBLE_DEVICES=1
 export MUJOCO_GL="egl"
-cd /new-home/e22/e22130/projects/quad
+cd ~/projects/quad
 python3 train.py --num-envs 8 --push-force 150.0 --total-timesteps 5000000 --device auto
 ```
 
@@ -154,7 +154,7 @@ python3 train.py --num-envs 8 --push-force 150.0 --total-timesteps 5000000 --dev
   3. Close your SSH connection or terminal.
 * **Reconnect and check live training:**
   ```bash
-  ssh e22130@ada.ce.pdn.ac.lk
+  ssh <username>@<server_host>
   tmux attach -t quad_training
   ```
 
@@ -162,12 +162,12 @@ python3 train.py --num-envs 8 --push-force 150.0 --total-timesteps 5000000 --dev
 Run TensorBoard inside your project folder on Ada:
 ```bash
 source /tmp/quad_rl_new/bin/activate
-cd /new-home/e22/e22130/projects/quad
+cd ~/projects/quad
 tensorboard --logdir logs/tb --port 6006
 ```
 On your local PC, create an SSH tunnel to view it in your browser:
 ```bash
-ssh -L 6006:localhost:6006 e22130@ada.ce.pdn.ac.lk
+ssh -L 6006:localhost:6006 <username>@<server_host>
 ```
 Open `http://localhost:6006` in your browser to monitor real-time loss, reward, and episode lengths.
 
@@ -183,13 +183,13 @@ Once the 5,000,000 steps complete:
 #### A. Record MP4 on Ada Server (Headless GPU Rendering)
 ```bash
 source /tmp/quad_rl_new/bin/activate
-cd /new-home/e22/e22130/projects/quad
+cd ~/projects/quad
 export MUJOCO_GL="egl"
 python3 record_video.py --model-path ./checkpoints/best_model/best_model.zip --output quadruped_adaptation.mp4 --steps 500
 ```
 * **Download to your Windows PC to view:**
   ```powershell
-  scp e22130@ada.ce.pdn.ac.lk:/new-home/e22/e22130/projects/quad/quadruped_adaptation.mp4 .
+  scp <username>@<server_host>:~/projects/quad/quadruped_adaptation.mp4 .
   ```
 
 #### B. Troubleshooting Headless OpenGL / GLFW Errors:
@@ -203,8 +203,7 @@ mujoco.FatalError: an OpenGL platform library has not been loaded into this proc
 #### C. Live Interactive 3D Viewer on Local Windows PC
 Download the checkpoint to your PC and run:
 ```powershell
-scp -r e22130@ada.ce.pdn.ac.lk:/new-home/e22/e22130/projects/quad/checkpoints/best_model "e:\Quadruped Gait Adaptation under External Perturbations\checkpoints\"
-cd "e:\Quadruped Gait Adaptation under External Perturbations"
+scp -r <username>@<server_host>:~/projects/quad/checkpoints/best_model ./checkpoints/
 python view_interactive.py --model-path "./checkpoints/best_model/best_model.zip"
 ```
 
