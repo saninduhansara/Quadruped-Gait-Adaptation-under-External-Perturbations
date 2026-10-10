@@ -1,3 +1,5 @@
+
+
 # Quadruped Gait Adaptation under External Perturbations & Actuator Failure Recovery
 
 <p align="center">
@@ -19,9 +21,15 @@ An open-source, research-grade Deep Reinforcement Learning (PPO) framework for t
 ### 1. Unified Multi-Gait, 3-Legged Limp Mode & Bait Navigation Final Demo (`quadruped_unified_demo.mp4`)
 Demonstrates the final trained policy autonomously navigating toward randomly spawned grid cell targets, dynamically shifting gaits (`WALK` $\leftrightarrow$ `TROT` $\leftrightarrow$ `BOUND`), and instantly recovering into **3-Legged Limp Mode** when an actuator failure is injected mid-run:
 
-<p align="center">
-  <video src="quadruped_unified_demo.mp4" width="100%" controls autoplay loop muted playsinline></video>
-</p>
+<table align="center" border="0">
+  <tr>
+    <td align="center">
+      <video src="https://github.com/user-attachments/assets/734a9080-ca38-4648-a1e1-438f1960c167" width="720" controls></video>
+    </td>
+  </tr>
+</table>
+
+
 
 *Direct file link:* [`quadruped_unified_demo.mp4`](./quadruped_unified_demo.mp4)
 
@@ -37,9 +45,15 @@ A comprehensive 2+ minute chronological progression video capturing the evolutio
 6. **1:30 – 1:48:** 360° Random Cell Bait Hunting across the arena
 7. **1:48 – 2:06+:** 3-Legged Limp Mode Recovery (Front-Right leg severed while continuing to catch baits on 3 legs)
 
-<p align="center">
-  <video src="training_progression_2min.mp4" width="100%" controls autoplay loop muted playsinline></video>
-</p>
+<table align="center" border="0">
+  <tr>
+    <td align="center">
+      <video src="https://github.com/user-attachments/assets/46b6ce14-224a-4a61-b839-98790c61b8ee" width="720" controls></video>
+    </td>
+  </tr>
+</table>
+
+
 
 *Direct file link:* [`training_progression_2min.mp4`](./training_progression_2min.mp4)
 
@@ -161,7 +175,10 @@ $$\hat{A}_t^{\text{GAE}} = \sum_{l=0}^{\infty} (\gamma \lambda)^l \delta_{t+l}^V
 
 The joint objective combines policy surrogate loss, value function regression, and an entropy regularization bonus:
 
-$$\mathcal{L}_{\text{total}}(\theta, \phi) = -\mathcal{L}^{\text{CLIP}}(\theta) + c_1 \hat{\mathbb{E}}_t \left[ (V_\phi(s_t) - V_t^{\text{targ}})^2 \right] - c_2 \mathcal{S}[\pi_\theta](s_t)$$
+$$
+\mathcal{L}_{\text{total}}(\theta, \phi) = -\mathcal{L}^{\text{CLIP}}(\theta) + c_1 \hat{\mathbb{E}}_t \left[ (V_\phi(s_t) - V_t^{\text{targ}})^2 \right] - c_2 \mathcal{S}(\pi_\theta)
+$$
+
 
 with coefficients $c_1 = 0.5$ and $c_2 = 0.005$.
 
@@ -178,7 +195,7 @@ $$\Delta q_{\text{thigh}, i} = (A_{\text{swing}} + \Delta_{\text{yaw}, i}) \cos(
 
 $$\Delta q_{\text{calf}, i} = -2 A_{\text{lift}} \max(0, \sin(\theta_i)) + 0.05 \min(0, \sin(\theta_i))$$
 
-$$\Delta q_{\text{hip}, i} = (A_{\text{lat}} + \Delta_{\text{hip\_turn}, i}) \cos(\theta_i) + \delta_{\text{limp, hip}}$$
+$$\Delta q_{\text{hip}, i} = (A_{\text{lat}} + \Delta_{\text{hip-turn}, i}) \cos(\theta_i) + \delta_{\text{limp, hip}}$$
 
 * **Thigh Swing Amplitude:** $A_{\text{swing}} = 0.26 \cdot \text{clip}(|v_x| / 0.8, 0.25, 1.45) \cdot \text{sgn}(v_x)$ rad
 * **Foot Vertical Clearance:** $A_{\text{lift}} = 0.24 \cdot \text{clip}(\text{activity} + 0.3, 0.7, 1.15)$ rad
